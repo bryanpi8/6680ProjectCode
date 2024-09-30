@@ -2,12 +2,13 @@
 import pygame
 import random
 import math
+from collections import deque
 
 # Initialize Pygame
 pygame.init()
 
 # Screen dimensions
-WIDTH, HEIGHT = 400, 400
+WIDTH, HEIGHT = 200, 200
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("Agent Search and Communication Simulation")
 
@@ -23,8 +24,8 @@ YELLOW = (255, 255, 0)
 AGENT_COUNT = 20
 AGENT_RADIUS = 5
 COMM_RANGE = AGENT_RADIUS * 4
-TX_MOVE_DISTANCE = 8
-SPEED = 6
+TX_MOVE_DISTANCE = 4
+SPEED = 2
 
 # Agent class
 class Agent:
@@ -33,6 +34,7 @@ class Agent:
         self.y = y
         self.is_repeater = False
         self.target = None  # Target to follow (TX or another repeater)
+        self.connected_to_tx = False  # Tracks if the agent is connected to the TX
     
     def move(self, agents):
         if self.is_repeater and self.target:
@@ -46,35 +48,34 @@ class Agent:
                 self.x += SPEED * (direction_x / distance)
                 self.y += SPEED * (direction_y / distance)
             
-            # Separation: Adjust position to avoid being too close to neighbors
-            separation_x, separation_y = 0, 0
-            for other_agent in agents:
-                if other_agent != self:
-                    dist_to_other = self.distance_to(other_agent)
-                    if dist_to_other < COMM_RANGE:  # Too close to another agent
-                        # Move away from the other agent to maintain a minimum distance
-                        separation_x += self.x - other_agent.x
-                        separation_y += self.y - other_agent.y
-            
-            # Apply separation adjustments
-            if separation_x != 0 or separation_y != 0:
-                separation_mag = math.sqrt(separation_x**2 + separation_y**2)
-                self.x += SPEED * (separation_x / separation_mag)
-                self.y += SPEED * (separation_y / separation_mag)
-                
-            # Keep within screen bounds
+            # Apply bounds
             self.x = max(0, min(WIDTH, self.x))
             self.y = max(0, min(HEIGHT, self.y))
-            
         else:
             # Move randomly (for non-repeaters)
             self.x += random.uniform(-SPEED, SPEED)
             self.y += random.uniform(-SPEED, SPEED)
             self.x = max(0, min(WIDTH, self.x))  # Keep agent within bounds
             self.y = max(0, min(HEIGHT, self.y))  # Keep agent within bounds
-    
+
     def distance_to(self, other):
         return math.sqrt((self.x - other.x) ** 2 + (self.y - other.y) ** 2)
+
+def propagate_disconnection(starting_agent):
+    """ Propagate disconnection status throughout the network if an agent loses connection to the TX. """
+    queue = deque([starting_agent])
+    while queue:
+        agent = queue.popleft()
+        agent.is_repeater = False
+        agent.target = None
+        agent.connected_to_tx = False
+        
+        # Check neighbors and propagate disconnection
+        for other_agent in agents:
+            if other_agent.target == agent:  # Only check agents directly connected to this one
+                queue.append(other_agent)
+
+
 
 # Transmitter (TX) class
 class Transmitter:
@@ -110,7 +111,6 @@ while running:
     tx.move()
     
     # Update and draw agents
-# Update and draw agents
     for agent in agents:
         agent.move(agents)  # Pass in the list of agents to check for neighbors
         
@@ -118,17 +118,24 @@ while running:
         if agent.distance_to(tx) <= COMM_RANGE:
             agent.is_repeater = True
             agent.target = tx
+            agent.connected_to_tx = True  # Directly connected to TX
         else:
             # Check if agent is near any other repeater
             for other_agent in agents:
                 if other_agent.is_repeater and agent.distance_to(other_agent) <= COMM_RANGE:
                     agent.is_repeater = True
                     agent.target = other_agent
+                    agent.connected_to_tx = other_agent.connected_to_tx
                     break  # Stop checking once we find a repeater nearby
+        
+        # If the agent is a repeater but no longer connected to TX, return to search mode and propagate disconnection
+        if agent.is_repeater and not agent.connected_to_tx:
+            propagate_disconnection(agent)
         
         # Draw agent
         color = GREEN if agent.is_repeater else BLUE
         pygame.draw.circle(screen, color, (int(agent.x), int(agent.y)), AGENT_RADIUS)
+
 
 
     
