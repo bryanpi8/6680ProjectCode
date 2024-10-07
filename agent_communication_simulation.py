@@ -9,7 +9,7 @@ import numpy as np
 pygame.init()
 
 # Screen dimensions
-WIDTH, HEIGHT = 400, 400
+WIDTH, HEIGHT = 800, 800
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("Agent Search and Communication Simulation")
 
@@ -22,6 +22,7 @@ RED = (255, 0, 0)
 YELLOW = (255, 255, 0)
 
 # Simulation parameters
+FPS = 30
 AGENT_COUNT = 20
 AGENT_RADIUS = 5
 COMM_RANGE = AGENT_RADIUS * 4
@@ -30,10 +31,14 @@ TX_MOVE_DISTANCE = 4
 SPEED = 2
 BLEND_FACTOR = 0.3
 
+RXSPAWNX = WIDTH/2
+RXSPAWNY = HEIGHT/2
+
 MAX_AGENT_INIT_RADIUS = AGENT_RADIUS * 15  # Define a maximum radius for placement around rx
 MIN_AGENT_INIT_DISTANCE = AGENT_RADIUS * 4
 
-REPULSION_CONSTANT = 100.0  # Strength of the repulsive force
+REPULSION_CONSTANT = 100.0   # Strength of the repulsive force
+ATTRACTION_CONSTANT = 100.0  # Strength of the attractive force
 
 # Agent class
 class Agent:
@@ -63,7 +68,19 @@ class Agent:
         else:
             # If robots are too close, apply a strong repulsive force to avoid collision
             return np.array([0.0, 0.0])
+        
+    def calculate_attractive_force(self, other):
+        distance = self.distance_to(other)
 
+        if distance > AGENT_RADIUS:
+            # Attractive force follows inverse square law
+            force_magnitude = ATTRACTION_CONSTANT / (distance ** 2)
+            # Force direction is towards the neighbor
+            force_direction = (self.position() + other.position()) / distance
+            return force_magnitude * force_direction
+        else:
+            return np.array([0.0, 0.0])
+        
     def calculate_wall_repulsion(self):
         net_force = np.array([0.0, 0.0])  # Initialize net force to zero
         # Wall boundaries (left, right, top, bottom)
@@ -104,7 +121,9 @@ class Agent:
         for other_agent in all_agents:
             if other_agent != self and self.distance_to(other_agent) < DIST_DETECTION_RANGE:  # Only consider it if within range
                 repulsive_force = self.calculate_repulsive_force(other_agent)
-                net_force += repulsive_force
+                attractive_force = self.calculate_attractive_force(other_agent)
+                net_force += repulsive_force + attractive_force
+            
 
         # Add wall repulsion to net force
         wall_repulsion = self.calculate_wall_repulsion()
@@ -185,8 +204,7 @@ def propagate_disconnection(starting_agent):
 
 # Initialize agents, TX, and RX. Agents should not be initialized in the exact same spot
 tx = Transmitter()
-# rx = Agent(random.randint(50, WIDTH - 50), random.randint(50, HEIGHT - 50))
-rx = Agent(WIDTH-30, HEIGHT-30)
+rx = Agent(RXSPAWNX, RXSPAWNY)
 
 def generate_random_position(rx, max_radius):
     # Random angle between 0 and 2 * pi
@@ -275,7 +293,7 @@ while running:
 
     # Update display
     pygame.display.flip()
-    clock.tick(60)
+    clock.tick(FPS)
 
 # Quit Pygame
 pygame.quit()
