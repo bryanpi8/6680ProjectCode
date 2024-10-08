@@ -9,7 +9,7 @@ import numpy as np
 pygame.init()
 
 # Screen dimensions
-WIDTH, HEIGHT = 800, 800
+WIDTH, HEIGHT = 400, 400
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("Agent Search and Communication Simulation")
 
@@ -49,6 +49,7 @@ class Agent:
         self.target = None  # Target to follow (TX or another repeater)
         self.connected_to_tx = False  # Tracks if the agent is connected to the TX
         self.movement_vector = SPEED * np.array([math.cos(random.uniform(0, 2 * math.pi)), math.sin(random.uniform(0, 2 * math.pi))])
+        self.part_of_chain = False
 
     def position(self):
         return np.array([self.x, self.y])
@@ -56,19 +57,28 @@ class Agent:
     def distance_to(self, other):
         return math.sqrt((self.x - other.x) ** 2 + (self.y - other.y) ** 2)
 
-    def calculate_repulsive_force(self, other):
+    def check_part_of_chain(self, all_agents):
+        global tx
+        if self.distance_to(tx) < DIST_DETECTION_RANGE:
+            self.part_of_chain = True
+            return
+
+        for other_agent in all_agents:
+            if other_agent.part_of_chain and self.distance_to(other_agent) < DIST_DETECTION_RANGE:
+                self.part_of_chain = True
+
+    def calculate_repulsive_direction(self, other):
         distance = self.distance_to(other)
 
-        if distance > AGENT_RADIUS:
+        if distance < DIST_DETECTION_RANGE:
             # Repulsive force follows inverse square law
-            force_magnitude = REPULSION_CONSTANT / (distance ** 2)
             # Force direction is away from the neighbor
-            force_direction = (self.position() - other.position()) / distance
-            return force_magnitude * force_direction
+            force_direction = (self.position() - other.position())
+            return force_direction
         else:
             # If robots are too close, apply a strong repulsive force to avoid collision
             return np.array([0.0, 0.0])
-        
+
     def calculate_attractive_force(self, other):
         distance = self.distance_to(other)
 
@@ -80,9 +90,9 @@ class Agent:
             return force_magnitude * force_direction
         else:
             return np.array([0.0, 0.0])
-        
-    def calculate_wall_repulsion(self):
-        net_force = np.array([0.0, 0.0])  # Initialize net force to zero
+
+    def calculate_wall_repulsion_direction(self):
+        net_direction = np.array([0.0, 0.0])  # Initialize net force to zero
         # Wall boundaries (left, right, top, bottom)
         walls = {
             "left": 0,
@@ -102,57 +112,61 @@ class Agent:
         for wall, distance in distance_to_walls.items():
             if distance < DIST_DETECTION_RANGE:  # Threshold for repulsion
                 # Calculate repulsive force away from the wall
-                force_magnitude = REPULSION_CONSTANT / (distance ** 2)
                 if wall == "left":
-                    net_force[0] += force_magnitude  # Push to the right
+                    net_direction[0] += 1  # Push to the right
                 elif wall == "right":
-                    net_force[0] -= force_magnitude  # Push to the left
+                    net_direction[0] -= 1  # Push to the left
                 elif wall == "top":
-                    net_force[1] += force_magnitude  # Push down
+                    net_direction[1] += 1  # Push down
                 elif wall == "bottom":
-                    net_force[1] -= force_magnitude  # Push up
+                    net_direction[1] -= 1  # Push up
 
-        return net_force
+        return net_direction
 
-    def calculate_net_force(self, all_agents):
-        net_force = np.array([0.0, 0.0])  # Initialize net force to zero
+    def calculate_net_direction(self, all_agents):
+        net_direction = np.array([0.0, 0.0])  # Initialize net force to zero
 
         # Sum the repulsive forces from all neighbors
         for other_agent in all_agents:
             if other_agent != self and self.distance_to(other_agent) < DIST_DETECTION_RANGE:  # Only consider it if within range
-                repulsive_force = self.calculate_repulsive_force(other_agent)
-                attractive_force = self.calculate_attractive_force(other_agent)
-                net_force += repulsive_force + attractive_force
-            
+                repulsive_direction = self.calculate_repulsive_direction(other_agent)
+                # attractive_force = self.calculate_attractive_force(other_agent)
+                net_direction += repulsive_direction #+ attractive_force
+
 
         # Add wall repulsion to net force
-        wall_repulsion = self.calculate_wall_repulsion()
-        net_force += wall_repulsion
+        wall_direction = self.calculate_wall_repulsion_direction()
+        net_direction += wall_direction
 
-        return net_force
+        return net_direction
 
     def move(self, all_agents):
         # Calculate the net force from neighbors
-        net_force = self.calculate_net_force(all_agents)
+        net_direction = self.calculate_net_direction(all_agents)
 
+        if self.part_of_chain:
+            self.movement_vector = np.array([0, 0])
         # Normalize the net force to ensure uniform speed
-        if np.linalg.norm(net_force) > 0:
-            # Move in the direction of the net force with a fixed speed
-            new_direction = net_force / np.linalg.norm(net_force)
+        elif np.linalg.norm(net_direction) > 0:
+            # Normalize the net force to determine the primary movement direction
+            normalized_net_direction = net_direction / np.linalg.norm(net_direction)
 
-            # Blend existing direction with the new direction
-            self.movement_vector = (1 - BLEND_FACTOR) * (self.movement_vector / np.linalg.norm(self.movement_vector)) + BLEND_FACTOR * (new_direction / np.linalg.norm(new_direction))
-            self.movement_vector = self.movement_vector / np.linalg.norm(self.movement_vector)
-            self.movement_vector *= SPEED  # Scale back to speed
+            # Decompose the movement vector into parallel and perpendicular components
+            current_movement_norm = np.dot(self.movement_vector, normalized_net_direction) * normalized_net_direction
+            perpendicular_movement = self.movement_vector - current_movement_norm
+
+            # Blend only the perpendicular component
+            blended_vector = (perpendicular_movement / np.linalg.norm(net_direction)) +  normalized_net_direction
+
+            # Normalize the result and scale by speed
+            self.movement_vector = blended_vector / np.linalg.norm(blended_vector) * SPEED
         else:
-            # Move in prev direction
+            # If no net force, continue in the previous direction
             pass
 
         # Update the agent's position based on the movement vector
         self.x += self.movement_vector[0]
         self.y += self.movement_vector[1]
-
-
 
     def random_move(self):
         if self.is_repeater and self.target:
@@ -179,8 +193,8 @@ class Agent:
 # Transmitter (TX) class
 class Transmitter:
     def __init__(self):
-        self.x = 30
-        self.y = 30
+        self.x = 50
+        self.y = 50
 
     def random_move(self):
         self.x += random.uniform(-TX_MOVE_DISTANCE, TX_MOVE_DISTANCE)
@@ -206,7 +220,7 @@ def propagate_disconnection(starting_agent):
 tx = Transmitter()
 rx = Agent(RXSPAWNX, RXSPAWNY)
 
-def generate_random_position(rx, max_radius):
+def calculate_random_position(rx, max_radius):
     # Random angle between 0 and 2 * pi
     angle = random.uniform(0, 2 * math.pi)
 
@@ -234,8 +248,8 @@ agents = []
 
 # Loop to place agents
 while len(agents) < AGENT_COUNT:
-    # Generate random position
-    agent_x, agent_y = generate_random_position(rx, MAX_AGENT_INIT_RADIUS)
+    # calculate random position
+    agent_x, agent_y = calculate_random_position(rx, MAX_AGENT_INIT_RADIUS)
 
     # Create a new agent
     new_agent = Agent(agent_x, agent_y)
@@ -261,8 +275,8 @@ while running:
 
     # Update and draw agents
     for agent in agents:
+        agent.check_part_of_chain(agents)
         agent.move(agents)
-
         # # Check if agent is near TX or any repeater
         # if agent.distance_to(tx) <= COMM_RANGE:
         #     agent.is_repeater = True
