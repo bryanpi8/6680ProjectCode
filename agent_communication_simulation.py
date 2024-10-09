@@ -13,6 +13,8 @@ WIDTH, HEIGHT = 400, 400
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("Agent Search and Communication Simulation")
 
+font = pygame.font.SysFont(None, 12)  # You can change the size as needed
+
 # Colors
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
@@ -45,11 +47,13 @@ class Agent:
     def __init__(self, x, y):
         self.x = x
         self.y = y
-        self.is_repeater = False
+        self.is_rx = False # is rx (is the start point)
         self.target = None  # Target to follow (TX or another repeater)
         self.connected_to_tx = False  # Tracks if the agent is connected to the TX
         self.movement_vector = SPEED * np.array([math.cos(random.uniform(0, 2 * math.pi)), math.sin(random.uniform(0, 2 * math.pi))])
         self.part_of_chain = False
+        self.hop_count = -1  # Initialize hop count to infinity
+        self.angle_offset = 0  # Angle offset for circular movement
 
     def position(self):
         return np.array([self.x, self.y])
@@ -60,12 +64,18 @@ class Agent:
     def check_part_of_chain(self, all_agents):
         global tx
         if self.distance_to(tx) < DIST_DETECTION_RANGE:
+            if (not self.part_of_chain):
+                self.hop_count = 1  # TX has hop count 0
             self.part_of_chain = True
             return
 
         for other_agent in all_agents:
             if other_agent.part_of_chain and self.distance_to(other_agent) < DIST_DETECTION_RANGE:
+                if (not self.part_of_chain):
+                    self.hop_count = max(self.hop_count, other_agent.hop_count + 1)  # Increment hop count from the repeater
                 self.part_of_chain = True
+                self.target = other_agent
+                return
 
     def calculate_repulsive_direction(self, other):
         distance = self.distance_to(other)
@@ -144,6 +154,14 @@ class Agent:
         # Calculate the net force from neighbors
         net_direction = self.calculate_net_direction(all_agents)
 
+        # Update the density map based on the agent's current position
+        cell_x = int(self.x // (WIDTH // density_map.shape[1]))
+        cell_y = int(self.y // (HEIGHT // density_map.shape[0]))
+
+        # Increment the density value for the current cell
+        if 0 <= cell_x < density_map.shape[1] and 0 <= cell_y < density_map.shape[0]:
+            density_map[cell_y, cell_x] += 1
+
         if self.part_of_chain:
             self.movement_vector = np.array([0, 0])
         # Normalize the net force to ensure uniform speed
@@ -219,6 +237,7 @@ def propagate_disconnection(starting_agent):
 # Initialize agents, TX, and RX. Agents should not be initialized in the exact same spot
 tx = Transmitter()
 rx = Agent(RXSPAWNX, RXSPAWNY)
+rx.is_rx = True
 
 def calculate_random_position(rx, max_radius):
     # Random angle between 0 and 2 * pi
@@ -243,8 +262,9 @@ def is_valid_position(new_agent, agents, min_distance):
     return True
 
 # Main initialization logic
-agents = []
+agents = [rx]
 
+density_map = np.zeros((40, 40))  # Initialize the density map
 
 # Loop to place agents
 while len(agents) < AGENT_COUNT:
@@ -263,7 +283,7 @@ running = True
 clock = pygame.time.Clock()
 
 while running:
-    screen.fill(WHITE)
+    # screen.fill(WHITE)
 
     # Event handling
     for event in pygame.event.get():
@@ -273,10 +293,28 @@ while running:
     # Move TX
     # tx.move()
 
+    heatmap_surface = pygame.Surface((WIDTH, HEIGHT))
+    heatmap_surface.fill((255, 255, 255))  # Fill with white for the background
+    heatmap_surface.set_colorkey((255, 255, 255))  # Make the background transparent
+
+    # Draw density map as a heatmap overlay
+    for y in range(density_map.shape[0]):
+        for x in range(density_map.shape[1]):
+            # Normalize the density for color mapping
+            density_value = density_map[y, x]
+            color_intensity = min(255, int(density_value * 5))  # Adjust the multiplier for visibility
+            pygame.draw.rect(heatmap_surface, (color_intensity, 0, 0), (x * (WIDTH // density_map.shape[1]), y * (HEIGHT // density_map.shape[0]), WIDTH // density_map.shape[1], HEIGHT // density_map.shape[0]))
+
+    # Blit the heatmap surface onto the main screen with alpha
+    # screen.blit(heatmap_surface, (0, 0), special_flags=pygame.BLEND_RGBA_ADD)
+
+    screen.blit(heatmap_surface, (0, 0))
+
     # Update and draw agents
     for agent in agents:
         agent.check_part_of_chain(agents)
-        agent.move(agents)
+        if (not agent.is_rx):
+            agent.move(agents)
         # # Check if agent is near TX or any repeater
         # if agent.distance_to(tx) <= COMM_RANGE:
         #     agent.is_repeater = True
@@ -296,9 +334,14 @@ while running:
         #     propagate_disconnection(agent)
 
         # Draw agent
-        color = GREEN if agent.is_repeater else BLUE
+        color = GREEN if agent.is_rx else BLUE
         pygame.draw.circle(screen, color, (int(agent.x), int(agent.y)), AGENT_RADIUS)
-        pygame.draw.circle(screen, BLACK, (int(agent.x), int(agent.y)), COMM_RANGE, width=1)
+        pygame.draw.circle(screen, WHITE, (int(agent.x), int(agent.y)), COMM_RANGE, width=1)
+
+        # Render hop count
+        hop_count_text = font.render(str(agent.hop_count), True, WHITE)  # Render hop count as text
+        text_rect = hop_count_text.get_rect(center=(int(agent.x), int(agent.y) - AGENT_RADIUS - 10))  # Position above the agent
+        screen.blit(hop_count_text, text_rect)
 
     # Draw TX and RX
     pygame.draw.rect(screen, RED, (tx.x - 10, tx.y - 10, 20, 20))  # TX as a square
