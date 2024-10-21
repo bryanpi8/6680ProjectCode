@@ -29,7 +29,7 @@ AGENT_COUNT = 15
 AGENT_RADIUS = 5
 COMM_RANGE = AGENT_RADIUS * 5
 DIST_DETECTION_RANGE = COMM_RANGE
-MAX_SPEED = 0.2
+MAX_SPEED = 1
 BLEND_FACTOR = 0.3
 
 RXSPAWNX = WIDTH/2
@@ -133,7 +133,7 @@ class Agent:
                         # if other_agent.is_rx or other_agent.is_tx:
                         if other_agent.part_of_critical_chain:
                             # Linear relationship for attraction (force increases with distance)
-                            attractive_force_magnitude = ATTRACTION_CONSTANT * distance * 5
+                            attractive_force_magnitude = ATTRACTION_CONSTANT * distance * 1.2
                             attractive_force = direction * attractive_force_magnitude
                         else:
                             # Linear relationship for attraction (force increases with distance)
@@ -199,7 +199,7 @@ class Agent:
         self.velocity = direction * speed
 
         # Apply damping to simulate friction
-        self.velocity *= 0.9
+        self.velocity *= 0.5
 
         # Update position (p = p + v)
         self.x += self.velocity[0]

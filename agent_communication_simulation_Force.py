@@ -42,7 +42,7 @@ MIN_AGENT_INIT_DISTANCE = AGENT_RADIUS * 4
 REPULSION_CONSTANT = 100.0   # Strength of the repulsive force
 ATTRACTION_CONSTANT = 90.0  # Strength of the attractive force
 
-randomMovementChance = .10
+randomMovementChance = .01
 
 tx_discovered = False  # Initially, the TX is not discovered
 
