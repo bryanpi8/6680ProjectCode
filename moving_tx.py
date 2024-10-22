@@ -345,7 +345,7 @@ while running:
             agent.move(agents, rx, tx)  # Pass tx
         elif agent.is_tx:
             # Set velocity towards (0, 0) with a desired speed (for example, speed = 2.0)
-            tx.move_at_velocity_towards(0, 0, 0.1*MAX_SPEED)
+            tx.move_at_velocity_towards(0, 0, 0.01*MAX_SPEED)
 
         # Find the critical chain after moving agents
         find_critical_chain(tx, rx, agents)
