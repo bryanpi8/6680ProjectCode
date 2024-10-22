@@ -4,6 +4,10 @@ import random
 import math
 from collections import deque
 import numpy as np
+import pandas as pd  # Import pandas for saving data to CSV
+import signal
+import sys
+import time  # Import time to track seconds
 
 # Initialize Pygame
 pygame.init()
@@ -41,7 +45,8 @@ MIN_AGENT_INIT_DISTANCE = AGENT_RADIUS * 4
 REPULSION_CONSTANT = 0.02   # Constant for repulsive force
 ATTRACTION_CONSTANT = 0.0002  # Constant for attractive force
 
-tx_discovered = False  # Initially, the TX is not discovered
+# Create a pandas DataFrame to store agents' positions and statuses
+data = pd.DataFrame(columns=['frame', 'agent_id', 'x', 'y', 'is_tx', 'is_rx'])
 
 # Agent class
 class Agent:
@@ -179,8 +184,8 @@ class Agent:
             # self.velocity = np.array([0.0, 0.0])
 
         # Update position (p = p + v)
-        self.x += self.velocity[0]
-        self.y += self.velocity[1]
+        self.x += dt * self.velocity[0]
+        self.y += dt * self.velocity[1]
 
         # Apply bounds (walls)
         self.x = max(0, min(WIDTH, self.x))
@@ -202,8 +207,8 @@ class Agent:
         self.velocity *= 0.5
 
         # Update position (p = p + v)
-        self.x += self.velocity[0]
-        self.y += self.velocity[1]
+        self.x += dt * self.velocity[0]
+        self.y += dt * self.velocity[1]
 
         # Apply bounds (walls)
         self.x = max(0, min(WIDTH, self.x))
@@ -293,6 +298,24 @@ while len(agents) < AGENT_COUNT:
 # Main simulation loop
 running = True
 clock = pygame.time.Clock()
+dt = 0
+start_time = time.time()
+program_start_time = time.time()
+
+frame_count = 0
+data_list = []
+
+def handle_sigint(signal, frame):
+    global data_list, pygame
+    # Save the data to CSV
+    print("Interrupt received, saving data to CSV and quitting...")
+    data = pd.DataFrame(data_list)
+    data.to_csv('agent_positions.csv', index=False)
+    pygame.quit()
+    sys.exit(0)
+
+# Register the signal handler
+signal.signal(signal.SIGINT, handle_sigint)
 
 while running:
     # Event handling
@@ -347,8 +370,22 @@ while running:
 
     # Update display
     pygame.display.flip()
-    clock.tick(FPS)
 
-# Quit Pygame
-pygame.quit()
+    elapsed_time = time.time() - start_time
+    if elapsed_time >= 1.0:  # Save every second
+        for i, agent in enumerate(agents):
+            data_list.append({
+                'time': round(time.time()-program_start_time, 2),  # You could also store actual time using time.time()
+                'agent_id': i,
+                'x': agent.x,
+                'y': agent.y,
+                'is_tx': agent.is_tx,
+                'is_rx': agent.is_rx,
+                'dist_detection_range': DIST_DETECTION_RANGE
+            })
+        start_time = time.time()  # Reset start time
+
+    frame_count += 1
+
+    dt = clock.tick(FPS)
 
