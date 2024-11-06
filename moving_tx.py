@@ -28,7 +28,7 @@ RED = (255, 0, 0)
 YELLOW = (255, 255, 0)
 
 # Simulation parameters
-FPS = 100
+FPS = 20
 AGENT_COUNT = 15
 AGENT_RADIUS = 5
 COMM_RANGE = AGENT_RADIUS * 5
@@ -42,9 +42,13 @@ RXSPAWNY = HEIGHT/2
 MAX_AGENT_INIT_RADIUS = AGENT_RADIUS * 15  # Define a maximum radius for placement around rx
 MIN_AGENT_INIT_DISTANCE = AGENT_RADIUS * 4
 
+CHAIN_MULITIPLIER = 1.3
 REPULSION_CONSTANT = 0.02   # Constant for repulsive force
 ATTRACTION_CONSTANT = 0.0002  # Constant for attractive force
+CHAIN_DELAY = 40 # Constant for slowing down chain updates, one update per N moves
 
+
+movement = 0
 # Create a pandas DataFrame to store agents' positions and statuses
 data = pd.DataFrame(columns=['frame', 'agent_id', 'x', 'y', 'is_tx', 'is_rx'])
 
@@ -112,7 +116,7 @@ class Agent:
     #     return net_force
 
     def calculate_net_force(self, all_agents):
-        max_force_distance = DIST_DETECTION_RANGE * 3  # Maximum distance for force to apply
+        max_force_distance = DIST_DETECTION_RANGE * 2  # Maximum distance for force to apply
         net_force = np.array([0.0, 0.0])  # Initialize the net force as zero
 
         for other_agent in all_agents:
@@ -124,26 +128,55 @@ class Agent:
                 if distance > 0 and distance < max_force_distance:  # Avoid division by zero, cap at max distance
                     direction = displacement / distance
 
-                    # Force Reduction Between Critical Chain Agents
+                    # Force Alteration Between Critical Chain Agents
                     if self.part_of_critical_chain and other_agent.part_of_critical_chain:
                         # Linear relationship for repulsion (force decreases with distance, stronger when close)
                         # The repulsive force is strongest when the agents are closest (distance approaches 0)
-                        repulsive_force_magnitude = REPULSION_CONSTANT * (1 - (distance / max_force_distance))
+                        repulsive_force_magnitude = REPULSION_CONSTANT * (1 - (distance / max_force_distance)) * CHAIN_MULITIPLIER
+                        # repulsive_force_magnitude = REPULSION_CONSTANT * distance ### Particle Ejection
                         repulsive_force = -direction * repulsive_force_magnitude
+                        
+                        attractive_force_magnitude = ATTRACTION_CONSTANT * distance * CHAIN_MULITIPLIER
+                        attractive_force = direction * attractive_force_magnitude
 
                         # Combine the forces
                         net_force += repulsive_force
+                        net_force += attractive_force
                     else:
 
                         # if other_agent.is_rx or other_agent.is_tx:
                         if other_agent.part_of_critical_chain:
                             # Linear relationship for attraction (force increases with distance)
-                            attractive_force_magnitude = ATTRACTION_CONSTANT * distance * 1.2
+                            attractive_force_magnitude = ATTRACTION_CONSTANT * distance * 1.3
                             attractive_force = direction * attractive_force_magnitude
-                        else:
+                        
+                        elif other_agent.is_rx:
                             # Linear relationship for attraction (force increases with distance)
-                            attractive_force_magnitude = ATTRACTION_CONSTANT * distance
+                            attractive_force_magnitude = ATTRACTION_CONSTANT * distance * 1.1
                             attractive_force = direction * attractive_force_magnitude
+                        
+                        else:
+                            attractive_force_magnitude = ATTRACTION_CONSTANT * distance 
+                            attractive_force = direction * attractive_force_magnitude
+
+                        ## Hop Count Based Movement
+                        # if other_agent.hop_count < self.hop_count and other_agent.part_of_critical_chain: 
+                        #     # Linear relationship for attraction (force increases with distance)
+                        #     attractive_force_magnitude = ATTRACTION_CONSTANT * distance * 1.1
+                        #     attractive_force = direction * attractive_force_magnitude
+                        # else:
+                        #     # Linear relationship for attraction (force increases with distance)
+                        #     attractive_force_magnitude = ATTRACTION_CONSTANT * distance
+                        #     attractive_force = direction * attractive_force_magnitude
+
+                        # if other_agent.hop_count < self.hop_count and other_agent.part_of_critical_chain: 
+                        #     # Linear relationship for attraction (force increases with distance)
+                        #     repulsive_force_magnitude = 1.05*REPULSION_CONSTANT * (1 - (distance / max_force_distance))
+                        #     repulsive_force = -direction * repulsive_force_magnitude
+                        # else:
+                        #     # Linear relationship for attraction (force increases with distance)
+                        #     repulsive_force_magnitude = REPULSION_CONSTANT * (1 - (distance / max_force_distance))
+                        #     repulsive_force = -direction * repulsive_force_magnitude
 
                         # Linear relationship for repulsion (force decreases with distance, stronger when close)
                         # The repulsive force is strongest when the agents are closest (distance approaches 0)
@@ -215,38 +248,46 @@ class Agent:
         self.y = max(0, min(HEIGHT, self.y))
 
 def find_critical_chain(tx_agent, rx_agent, all_agents):
-    for an_agent in all_agents:
-        an_agent.part_of_critical_chain = False
-        if an_agent.is_rx or an_agent.is_tx:
-            an_agent.part_of_critical_chain = True
+    global movement
+    movement += 1
+    if movement % CHAIN_DELAY == 0: ### Remove if necessary
+        for an_agent in all_agents:
+            an_agent.part_of_critical_chain = False
+            if an_agent.is_rx or an_agent.is_tx:
+                an_agent.part_of_critical_chain = True
 
-    # Initialize a queue for BFS
-    queue = deque([tx_agent])
-    visited = {tx_agent: 0}  # Track visited nodes and their hop count
-    predecessors = {tx_agent: None}  # To reconstruct the path
+        # Initialize a queue for BFS
+        try:
+            visited.clear()
+            predecessors.clear()
+        except:
+            pass
+        queue = deque([tx_agent])
+        visited = {tx_agent: 0}  # Track visited nodes and their hop count
+        predecessors = {tx_agent: None}  # To reconstruct the path
 
-    while queue:
-        current_agent = queue.popleft()
+        while queue:
+            current_agent = queue.popleft()
 
-        if current_agent is rx_agent:
-            break  # Stop when we reach the RX
+            if current_agent is rx_agent:
+                break  # Stop when we reach the RX
 
-        for other_agent in all_agents:
-            if other_agent not in visited and current_agent.distance_to(other_agent) < DIST_DETECTION_RANGE:
-                visited[other_agent] = visited[current_agent] + 1
-                predecessors[other_agent] = current_agent
-                queue.append(other_agent)
+            for other_agent in all_agents:
+                if other_agent not in visited and current_agent.distance_to(other_agent) < DIST_DETECTION_RANGE:
+                    visited[other_agent] = visited[current_agent] + 1
+                    predecessors[other_agent] = current_agent
+                    queue.append(other_agent)
 
-    # Reconstruct the shortest path
-    critical_chain = []
-    current_agent = rx_agent
-    while current_agent is not None:
-        critical_chain.append(current_agent)
-        current_agent = predecessors.get(current_agent)
+        # Reconstruct the shortest path
+        critical_chain = []
+        current_agent = rx_agent
+        while current_agent is not None:
+            critical_chain.append(current_agent)
+            current_agent = predecessors.get(current_agent)
 
-    # Mark agents in the critical chain
-    for critical_agent in critical_chain:
-        critical_agent.part_of_critical_chain = True
+        # Mark agents in the critical chain
+        for critical_agent in critical_chain:
+            critical_agent.part_of_critical_chain = True
 
 
 # Initialize agents, TX, and RX. Agents should not be initialized in the exact same spot

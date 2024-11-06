@@ -1,0 +1,9 @@
+Put all notes for new feature ideas here:
+
+1. Balanced but higher forces for chain members, not just higher attraction
+2. Chain Agents being pushed to outside
+3. Line 133 for particle ejection
+
+Kirstin feedback
+
+    --- A leader-follower style algorithm where the leader is whomever is closer to the transmitter.
