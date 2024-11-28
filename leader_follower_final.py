@@ -29,7 +29,8 @@ class Agent:
         self.ruleset = None  # "chain_extension", "network_mass", "critical_chain"
         self.part_of_critical_chain = False
         self.hop_count = -1
-        self.target_critical_chain = False  # New property for behavior
+        self.neighbors = []  # List of neighbor agents
+        self.received_messages = {}  # Stores messages received {source_agent: (cost, path)}
 
     def position(self):
         return np.array([self.x, self.y])
@@ -172,3 +173,52 @@ class Agent:
         # # Apply bounds (walls)
         # self.x = max(0, min(WIDTH, self.x))
         # self.y = max(0, min(HEIGHT, self.y))
+
+    def discover_neighbors(self, all_agents):
+        """Determine neighbors based on communication range."""
+        self.neighbors = []  # List of neighbor agents
+        self.received_messages = {}  # Stores messages received {source_agent: (cost, path)}
+        if self.part_of_critical_chain:
+            self.part_of_critical_chain = False
+            self.ruleset = self.initial_ruleset
+        self.neighbors = [
+            agent
+            for agent in all_agents
+            if agent is not self and self.distance_to(agent) < COMM_RANGE
+        ]
+
+    def flood_message(self, source_agent, cost, path):
+        """Flood message to neighbors, accumulating cost."""
+        # Check if this message is better than what we've received before
+        if (
+            source_agent not in self.received_messages
+            or cost < self.received_messages[source_agent][0]
+        ):
+            # Update the best known cost and path for this source
+            self.received_messages[source_agent] = (cost, path)
+
+            # Forward the message to neighbors
+            for neighbor in self.neighbors:
+                if neighbor not in path:  # Avoid loops
+                    new_cost = cost + self.distance_to(neighbor)
+                    new_path = path + [self]
+                    neighbor.flood_message(source_agent, new_cost, new_path)
+
+    def find_critical_path(self, tx_agent, all_agents):
+        """Discover neighbors, flood messages, and determine critical path."""
+
+        # If this is the Rx agent, determine the shortest path from Tx
+        if self.is_rx:
+            if tx_agent in self.received_messages:
+                cost, path = self.received_messages[tx_agent]
+                for critical_agent in path:
+                    critical_agent.part_of_critical_chain = True
+                    if not (critical_agent.is_tx or critical_agent.is_rx):
+                        critical_agent.ruleset = "critical_chain"
+                path.append(self)
+                return path, cost
+            else:
+                print(
+                    f"No path found from Tx({tx_agent.position()}) to Rx({self.position()})."
+                )
+                return [], float("inf")

@@ -4,7 +4,6 @@ import random
 import signal
 import sys
 import time
-from collections import deque
 
 import pandas as pd
 import pygame
@@ -77,59 +76,6 @@ NETWORK_MASS_RATIO = args.network_mass_ratio
 data_list = []
 critical_chain = []
 all_agents = []
-
-# Centralised critical chain search
-
-
-def find_critical_chain(tx_agent, rx_agent):
-    global critical_chain
-    if len(critical_chain) == 0:
-        for agent in all_agents:
-            agent.part_of_critical_chain = False
-            agent.ruleset = agent.initial_ruleset
-            agent.ruleset = agent.initial_ruleset
-            if agent.is_rx:
-                agent.ruleset = "rx"
-                agent.part_of_critical_chain = True
-            elif agent.is_tx:
-                agent.ruleset = "tx"
-                agent.part_of_critical_chain = True
-
-    queue = deque([rx_agent])
-    visited = {rx_agent: 0}
-    predecessors = {rx_agent: None}
-
-    while queue:
-        current_agent = queue.popleft()
-
-        if current_agent is tx_agent:
-            break
-
-        for other_agent in all_agents:
-            if (
-                other_agent not in visited
-                and current_agent.distance_to(other_agent) < COMM_RANGE
-            ):
-                visited[other_agent] = visited[current_agent] + 1
-                predecessors[other_agent] = current_agent
-                queue.append(other_agent)
-
-    if len(critical_chain) == 0:
-        current_agent = tx_agent
-    else:
-        current_agent = critical_chain[-1]
-        critical_chain = critical_chain[:-1]
-    while current_agent is not None:
-        critical_chain.append(current_agent)
-        current_agent = predecessors.get(current_agent)
-
-    hop_counter = 0
-    for critical_agent in critical_chain:
-        critical_agent.part_of_critical_chain = True
-        if not (critical_agent.is_tx or critical_agent.is_rx):
-            critical_agent.ruleset = "critical_chain"
-        critical_agent.hop_count = hop_counter
-        hop_counter += 1
 
 
 def is_critical_path_valid(dist_detection_range):
@@ -212,8 +158,6 @@ clock = pygame.time.Clock()
 start_time = time.time()
 program_start_time = time.time()
 
-find_critical_chain(tx, rx)
-
 # Filter out RX and TX agents
 non_rx_tx_agents = [
     agent for agent in all_agents if not agent.is_rx and not agent.is_tx
@@ -235,16 +179,23 @@ for i, agent in enumerate(non_rx_tx_agents):
         agent.ruleset = "chain_extension"
         agent.initial_ruleset = "chain_extension"
 
+# Find initial critical chain
+for agent in all_agents:
+    agent.discover_neighbors(all_agents)
+tx.flood_message(source_agent=tx, cost=0, path=[tx])
+critical_chain, cost = rx.find_critical_path(tx_agent=tx, all_agents=all_agents)
+
 while running:
     # Event handling
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
 
-    # Check if the critical path still exists
     if not is_critical_path_valid(COMM_RANGE):
-        critical_chain = critical_chain[:-1]
-        find_critical_chain(tx, rx)
+        for agent in all_agents:
+            agent.discover_neighbors(all_agents)
+        tx.flood_message(source_agent=tx, cost=0, path=[tx])
+        critical_chain, cost = rx.find_critical_path(tx_agent=tx, all_agents=all_agents)
 
     screen.fill(WHITE)
 
