@@ -10,8 +10,11 @@ COMM_RANGE = AGENT_RADIUS * 5
 DIST_DETECTION_RANGE = COMM_RANGE * 2
 MIN_DISTANCE = COMM_RANGE / 2
 MAX_SPEED = 0.01
-REPULSION_CONSTANT = 0.0020  # Constant for repulsive force
-ATTRACTION_CONSTANT = 0.0002  # Constant for attractive force
+# REPULSION_CONSTANT = 0.0020  # Constant for repulsive force
+# REPULSION_CONSTANT = 0.001  # Constant for repulsive force
+# ATTRACTION_CONSTANT = 0.0002  # Constant for attractive force
+REPULSION_CONSTANT = 5  # Constant for repulsive force
+ATTRACTION_CONSTANT = 1  # Constant for attractive force
 
 # Critical Chain Ruleset Parameter
 FOLLOW_DISTANCE = COMM_RANGE / 1.5
@@ -37,6 +40,27 @@ class Agent:
 
     def distance_to(self, other):
         return math.sqrt((self.x - other.x) ** 2 + (self.y - other.y) ** 2)
+
+    # def compute_repulsive_force(self, distance, max_force_distance, repulsion_constant, epsilon=1e-3):
+    #     if distance < max_force_distance:
+    #         force = repulsion_constant * (1 / (distance + epsilon) - 1 / max_force_distance)
+    #         return max(force, 0)  # Clamp to ensure no negative forces
+    #     else:
+    #         return 0.0
+
+
+    def compute_repulsive_force(self, distance, max_force_distance, repulsion_constant, epsilon=1e-3):
+        radius = 3* AGENT_RADIUS
+        # Effective distance is measured from the robot's radius
+        effective_distance = max(distance - radius, epsilon)
+
+        # Compute repulsive force
+        if distance < max_force_distance:
+            force = repulsion_constant * (1 / effective_distance - 1 / (max_force_distance - radius))
+            return max(force, 0)  # Ensure no negative forces
+        else:
+            return 0.0
+
 
     def move(self, dt, critical_chain, all_agents, rx_agent):
         max_force_distance = DIST_DETECTION_RANGE
@@ -64,14 +88,19 @@ class Agent:
                         direction = displacement / distance
 
                         # Apply repulsion from all agents
-                        repulsive_force_magnitude = REPULSION_CONSTANT * (
-                            1 - (distance / max_force_distance)
-                        )
+                        # repulsive_force_magnitude = REPULSION_CONSTANT * (
+                        #     1 - (distance / max_force_distance)
+                        # )
+
+                        repulsive_force_magnitude = self.compute_repulsive_force(distance, max_force_distance, REPULSION_CONSTANT)
                         repulsive_force = -direction * repulsive_force_magnitude
                         net_force += repulsive_force
 
             # Update the acceleration based on net force (F = ma, with m = 1, so a = F)
             self.acceleration = AGENT_VIRTUAL_MASS * net_force
+            magnitude = np.linalg.norm(self.acceleration)
+            if magnitude > 0:
+                self.acceleration = (self.acceleration / magnitude) * 0.01
 
             # Update velocity and limit it to a maximum speed
             self.velocity += self.acceleration
@@ -103,9 +132,19 @@ class Agent:
                 attraction_force = ATTRACTION_CONSTANT * displacement_to_rx
                 net_force += attraction_force
 
+            ### Add attraction to first critical chain agent
+
+            displacement_to_target = critical_chain[-2].position() - self.position()
+            distance_to_target = np.linalg.norm(displacement_to_target)
+
+            if distance_to_target < max_force_distance:
+                attraction_force = ATTRACTION_CONSTANT * displacement_to_target
+                net_force += attraction_force
+
             # repulsion from all agents
             for other_agent in all_agents:
-                if other_agent is not self and other_agent.ruleset == "chain_extension":
+                # if other_agent is not self and (other_agent.ruleset == "chain_extension" or other_agent.is_rx or other_agent.ruleset == "critical_chain"):
+                if other_agent is not self:
                     # Calculate the displacement vector between agents
                     displacement = other_agent.position() - self.position()
                     distance = np.linalg.norm(displacement)
@@ -114,14 +153,19 @@ class Agent:
                         direction = displacement / distance
 
                         # Apply repulsion from all agents
-                        repulsive_force_magnitude = REPULSION_CONSTANT * (
-                            1 - (distance / max_force_distance)
-                        )
+                        # repulsive_force_magnitude = REPULSION_CONSTANT * (
+                        #     1 - (distance / max_force_distance)
+                        # )
+                        repulsive_force_magnitude = self.compute_repulsive_force(distance, max_force_distance, REPULSION_CONSTANT)
+
                         repulsive_force = -direction * repulsive_force_magnitude
                         net_force += repulsive_force
 
             # Update the acceleration based on net force (F = ma, with m = 1, so a = F)
             self.acceleration = AGENT_VIRTUAL_MASS * net_force
+            magnitude = np.linalg.norm(self.acceleration)
+            if magnitude > 0:
+                self.acceleration = (self.acceleration / magnitude) * 0.01
 
             # Update velocity and limit it to a maximum speed
             self.velocity += self.acceleration
@@ -139,21 +183,21 @@ class Agent:
         # self.y = max(0, min(HEIGHT, self.y))
 
         # Adjust position to maintain minimum distance from all agents
-        if self.ruleset in ["chain_extension", "network_mass"]:
-            for other_agent in all_agents:
-                if other_agent is not self:  # Avoid self-comparison
-                    other_position = np.array([other_agent.x, other_agent.y])
-                    current_position = np.array([self.x, self.y])
-                    vector_to_other = current_position - other_position
-                    distance_to_other = np.linalg.norm(vector_to_other)
+        # if self.ruleset in ["chain_extension", "network_mass"]:
+        #     for other_agent in all_agents:
+        #         if other_agent is not self:  # Avoid self-comparison
+        #             other_position = np.array([other_agent.x, other_agent.y])
+        #             current_position = np.array([self.x, self.y])
+        #             vector_to_other = current_position - other_position
+        #             distance_to_other = np.linalg.norm(vector_to_other)
 
-                    if distance_to_other < MIN_DISTANCE:
-                        # Reposition the agent to maintain the minimum distance
-                        direction = vector_to_other / (
-                            distance_to_other + 1e-8
-                        )  # Avoid division by zero
-                        clamped_position = other_position + direction * MIN_DISTANCE
-                        self.x, self.y = clamped_position[0], clamped_position[1]
+        #             if distance_to_other < MIN_DISTANCE:
+        #                 # Reposition the agent to maintain the minimum distance
+        #                 direction = vector_to_other / (
+        #                     distance_to_other + 1e-8
+        #                 )  # Avoid division by zero
+        #                 clamped_position = other_position + direction * MIN_DISTANCE
+        #                 self.x, self.y = clamped_position[0], clamped_position[1]
 
     def move_at_velocity_towards(self, target_x, target_y, speed, dt):
         direction = np.array([target_x - self.x, target_y - self.y])
