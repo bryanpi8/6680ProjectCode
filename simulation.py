@@ -203,9 +203,12 @@ while running:
     for agent in all_agents:
         if agent.is_tx:
             # Set velocity towards (0, 0) with a desired speed (for example, speed = 2.0)
-            tx.move_at_velocity_towards(0, 0, 0.15 * MAX_SPEED, dt)
+            tx.move_at_velocity_towards(0, 0, 0.5 * MAX_SPEED, dt)
         else:
-            agent.move(dt, critical_chain, all_agents, rx)  # Pass tx
+            try:
+                agent.move(dt, critical_chain, all_agents, rx)  # Pass tx
+            except:
+                pass
 
         # Draw agent
         if agent.part_of_critical_chain and not agent.is_rx and not agent.is_tx:
@@ -253,3 +256,11 @@ while running:
         start_time = time.time()  # Reset start time
 
     dt = clock.tick(FPS)
+
+
+# Save the data to CSV
+print("Simulation Closed, saving data to CSV and quitting...")
+data = pd.DataFrame(data_list)
+data.to_csv("agent_positions.csv", index=False)
+pygame.quit()
+sys.exit(0)
